@@ -259,3 +259,38 @@ func (s *Server) GetTree(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	s.sendJSON(r, w, tr)
 }
+
+func (s *Server) PinTree(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "unsupported method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type pinTreeReq struct {
+		MerkleRoot hexutil.Bytes `json:"merkleRoot"`
+	}
+
+	var (
+		req pinTreeReq
+		ctx = r.Context()
+	)
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendJSONError(r, w, err, http.StatusBadRequest, "unhashedLeaves must be a list of hex strings")
+		return
+	}
+
+	hash, err := s.pinTree(ctx, req.MerkleRoot)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.sendJSONError(r, w, err, http.StatusNotFound, "tree not found for root")
+		return
+	} else if err != nil {
+		s.sendJSONError(r, w, err, http.StatusInternalServerError, "selecting tree")
+		return
+	}
+
+	s.sendJSON(r, w, map[string]any{
+		"ipfsHash": "ipfs://" + hash,
+	})
+}
